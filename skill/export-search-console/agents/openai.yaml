@@ -1,0 +1,4 @@
+interface:
+  display_name: "Export Search Console"
+  short_description: "Export and analyze Google Search Console data"
+  default_prompt: "Use $export-search-console to export and analyze my website Search Console data."

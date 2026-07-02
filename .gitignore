@@ -1,0 +1,11 @@
+client_secret*.json
+service-account*.json
+token.json
+exports/
+outputs/
+work/
+.agents/
+.codex/
+.venv/
+__pycache__/
+*.py[cod]
