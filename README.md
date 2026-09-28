@@ -3,9 +3,12 @@
 This small program exports the information available through the official Search Console API:
 
 - accessible properties and permission levels (`properties.json`);
-- submitted sitemap details (`sitemaps.json`);
-- Search performance as CSV files, grouped by date, query, page, country, device, search appearance, and a detailed combined report;
-- optional Google index inspections for a list of URLs (`url_inspections.json`).
+- submitted sitemap details, including the children of sitemap indexes (`sitemaps.json`);
+- Search performance as CSV files, grouped by date, query, page, country, device, search appearance, a detailed combined report, and optionally by hour, with optional filters;
+- optional Google index inspections for a list of URLs (`url_inspections.json`);
+- a run summary with row counts, data-freshness metadata, warnings, and errors (`run_metadata.json`).
+
+The exporter lives in `skill/export-search-console/scripts/`; the root `search_console_export.py` simply runs it.
 
 The repository also contains an agent-ready Codex skill under
 `skill/export-search-console`. Invoke it as `$export-search-console` after
@@ -20,11 +23,15 @@ copying that folder into your Codex skills directory.
 5. Create **OAuth client ID > Desktop app** credentials.
 6. Download the JSON file and save it beside this program as `client_secret.json`.
 
-Use the same Google account that has access to the property in Search Console. The program requests read-only access and stores the local login token in `token.json`.
+Use the same Google account that has access to the property in Search Console. The program requests read-only access and stores the local login token in `token.json` (readable only by you). The first sign-in opens a browser on the machine running the program; on a headless machine, sign in once on your own computer and copy `token.json` over, or use a service account.
 
 Alternatively, use a service-account JSON with `--credentials service-account.json`, after adding that service account's email address as a user of the Search Console property.
 
 ## 2. Install
+
+Python 3.9 or later is required.
+
+Windows PowerShell:
 
 ```powershell
 py -m venv .venv
@@ -32,9 +39,19 @@ py -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+The commands below are single lines and work in any shell.
+
 ## 3. Find the exact property name
 
-```powershell
+```
 python search_console_export.py --list-sites
 ```
 
@@ -47,37 +64,46 @@ Property names must match Search Console exactly:
 
 The default period is the last 90 days and the default search surface is Web:
 
-```powershell
+```
 python search_console_export.py --site "sc-domain:example.com"
 ```
 
 Choose dates and export every supported search surface:
 
-```powershell
-python search_console_export.py `
-  --site "sc-domain:example.com" `
-  --start-date 2026-01-01 `
-  --end-date 2026-06-30 `
-  --search-types web image video news discover googleNews
+```
+python search_console_export.py --site "sc-domain:example.com" --start-date 2026-01-01 --end-date 2026-06-30 --search-types web image video news discover googleNews
 ```
 
-To include recent, not-yet-finalized data, add `--data-state all`.
+Dates are in Pacific Time, like Search Console itself. Other options:
+
+- `--data-state all` includes recent, not-yet-finalized data. `run_metadata.json` then records `firstIncompleteDate`; figures from that day on may still change.
+- `--reports dates pages` exports only some reports (`dates queries pages countries devices appearances details hours`; default: all except `hours`). `details` is the heaviest; skip it for long ranges.
+- `--reports hours` groups by hour. Google only keeps hourly data for about the last 10 days.
+- `--filter page contains /blog/` filters rows; repeat it to combine filters with AND. Dimensions: `query page country device searchAppearance`; operators: `equals notEquals contains notContains includingRegex excludingRegex`.
+
+Each run writes to a new folder, `exports/<property>/<start>_to_<end>/<UTC timestamp>_<data state>/`, so results from different runs never mix. The program exits with code 1 if any report, sitemap listing, or inspection failed; check `errors` in `run_metadata.json`. Discover and Google News do not support every dimension; those reports are marked `unsupported`, not failed.
 
 ## 5. Inspect specific URLs
 
 Copy `urls.txt.example` to `urls.txt`, put one URL per line in it, then run:
 
-```powershell
-python search_console_export.py `
-  --site "sc-domain:example.com" `
-  --inspect-urls urls.txt
+```
+python search_console_export.py --site "sc-domain:example.com" --inspect-urls urls.txt
 ```
 
-Google currently limits URL inspection to 2,000 requests per property per day. The API only inspects URLs you supply; it does not provide an endpoint that enumerates every indexed URL.
+Google currently limits URL inspection to 2,000 requests per property per day. The program inspects at most 500 URLs per run by default (`--max-inspections`, up to 2,000), waits 0.2 seconds between requests (`--inspection-delay`), and saves results after every URL. Issue messages are in English by default (`--inspection-language fr-FR` for French). The API only inspects URLs you supply; it does not provide an endpoint that enumerates every indexed URL.
 
 ## Important limitation
 
-“All information” means all report families exposed by the API, not a database dump of Search Console. Search Analytics returns the top rows available through the API and may omit anonymized or low-volume queries. It does not expose every report found in the Search Console interface. CSV pagination uses Google's maximum batch size of 25,000 rows.
+“All information” means all read-only report families exposed by the API, not a database dump of Search Console. Search Analytics returns the top rows available through the API and may omit anonymized or low-volume queries. It does not expose every report found in the Search Console interface. CSV pagination uses Google's maximum batch size of 25,000 rows.
+
+## Run the tests
+
+```
+python -m unittest discover -s tests
+```
+
+The tests use a fake API service and need no credentials.
 
 ## Install the Codex skill
 
@@ -87,6 +113,12 @@ On Windows PowerShell:
 Copy-Item -Recurse `
   .\skill\export-search-console `
   "$HOME\.codex\skills\export-search-console"
+```
+
+On macOS / Linux:
+
+```bash
+cp -R skill/export-search-console ~/.codex/skills/export-search-console
 ```
 
 Then start a new Codex session and use a prompt such as:
