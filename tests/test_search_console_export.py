@@ -32,11 +32,12 @@ class Call:
 
 
 class FakeService:
-    def __init__(self, sites, sitemaps=None, failing=(), inspection_failures=()):
+    def __init__(self, sites, sitemaps=None, failing=(), inspection_failures=(), bad_filters=False):
         self.sites_entries = sites
         self.sitemap_tree = sitemaps or {None: []}
         self.failing = failing
         self.inspection_failures = inspection_failures
+        self.bad_filters = bad_filters
         self.queries = []
         self.inspected = []
 
@@ -54,7 +55,9 @@ class FakeService:
             self.queries.append(body)
 
             def run():
-                if (body["type"], tuple(body["dimensions"])) in self.failing:
+                if (body["type"], tuple(body["dimensions"])) in self.failing or (
+                    self.bad_filters and "dimensionFilterGroups" in body
+                ):
                     raise HttpError(Response(), b'{"error": "unsupported"}')
                 response = {"responseAggregationType": "byProperty", "rows": [{"keys": ["k"] * len(body["dimensions"]), "clicks": 1, "impressions": 10, "ctr": 0.1, "position": 2.5}]}
                 if body["dataState"] == "all" and "date" in body["dimensions"]:
@@ -125,6 +128,40 @@ class ExporterTest(unittest.TestCase):
         self.assertEqual(statuses["web/pages"], "error")
         self.assertEqual([e["report"] for e in meta["errors"]], ["web/pages"])
         self.assertEqual(code, 1)
+
+    def test_bad_filter_on_limited_surface_is_an_error(self):
+        service = FakeService(OWNER, bad_filters=True)
+        code, _, meta = self.run_main(
+            service, "--search-types", "discover", "--reports", "queries", "--filter", "query", "includingRegex", "("
+        )
+        self.assertEqual(meta["reports"][0]["status"], "error")
+        self.assertEqual([e["report"] for e in meta["errors"]], ["discover/queries"])
+        self.assertEqual(code, 1)
+
+    def test_unsupported_dimension_with_filter_is_still_unsupported(self):
+        service = FakeService(OWNER, failing={("discover", ("query",))})
+        code, _, meta = self.run_main(
+            service, "--search-types", "discover", "--reports", "queries", "--filter", "page", "contains", "/blog/"
+        )
+        self.assertEqual(meta["reports"][0]["status"], "unsupported")
+        self.assertEqual(meta["errors"], [])
+        self.assertEqual(code, 0)
+
+    def test_run_directories_are_unique(self):
+        args = exporter.parse_args(["--start-date", "2026-09-01", "--end-date", "2026-09-10"])
+        started = exporter.datetime(2026, 9, 28, tzinfo=exporter.timezone.utc)
+        first = exporter.create_run_directory(self.dir, SITE, args, started)
+        second = exporter.create_run_directory(self.dir, SITE, args, started)
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.is_dir() and second.is_dir())
+
+    def test_empty_inspection_list_still_writes_file(self):
+        urls = self.dir / "urls.txt"
+        urls.write_text("# only a comment\n", encoding="utf-8")
+        code, out, meta = self.run_main(FakeService(OWNER), "--reports", "dates", "--inspect-urls", str(urls))
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads((out / "url_inspections.json").read_text(encoding="utf-8")), [])
+        self.assertEqual(meta["urlInspections"]["requested"], 0)
 
     def test_sitemap_indexes_are_expanded(self):
         tree = {

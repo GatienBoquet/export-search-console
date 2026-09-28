@@ -239,9 +239,27 @@ def fetch_all_rows(service, site_url: str, body: dict[str, Any], label: str) -> 
         start_row += ROW_LIMIT
 
 
-def is_unsupported(exc: HttpError, search_type: str, dimensions: list[str]) -> bool:
-    status = getattr(getattr(exc, "resp", None), "status", None)
-    return search_type in LIMITED_SEARCH_TYPES and status == 400 and "query" in dimensions
+def http_status(exc: HttpError) -> int | None:
+    return getattr(getattr(exc, "resp", None), "status", None)
+
+
+def is_unsupported(service, site_url: str, body: dict[str, Any], exc: HttpError) -> bool:
+    """Tell an unsupported dimension apart from other bad requests (e.g. an invalid filter).
+
+    Only a 400 on Discover/Google News for a query-grouped report qualifies. When
+    filters are present, the same query is retried without them: if that succeeds,
+    the filter caused the 400 and it is a real error.
+    """
+    if body["type"] not in LIMITED_SEARCH_TYPES or "query" not in body["dimensions"] or http_status(exc) != 400:
+        return False
+    if "dimensionFilterGroups" not in body:
+        return True
+    probe = {key: value for key, value in body.items() if key != "dimensionFilterGroups"}
+    try:
+        service.searchanalytics().query(siteUrl=site_url, body={**probe, "rowLimit": 1}).execute(num_retries=3)
+    except HttpError as probe_exc:
+        return http_status(probe_exc) == 400
+    return False
 
 
 def export_performance(service, site_url: str, args: argparse.Namespace, output: Path) -> tuple[list, list, list]:
@@ -279,7 +297,7 @@ def export_performance(service, site_url: str, args: argparse.Namespace, output:
             try:
                 rows, context = fetch_all_rows(service, site_url, body, label)
             except HttpError as exc:
-                if is_unsupported(exc, search_type, dimensions):
+                if is_unsupported(service, site_url, body, exc):
                     entry.update(status="unsupported", detail=str(exc))
                     print(f"  {label}: not supported for this search type", flush=True)
                 else:
@@ -344,6 +362,7 @@ def inspect_urls(service, site_url: str, args: argparse.Namespace, output: Path)
     path = output / "url_inspections.json"
     inspections: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    write_json(path, inspections)  # Exists even when the URL list is empty.
     for index, url in enumerate(urls, start=1):
         if index > 1 and args.inspection_delay:
             time.sleep(args.inspection_delay)
@@ -398,10 +417,19 @@ def choose_site(properties: list[dict[str, Any]], requested: str | None) -> str:
     raise SystemExit(f"Choose a property with --site. Accessible properties:\n{choices}")
 
 
-def run_directory(base: Path, site_url: str, args: argparse.Namespace, started: datetime) -> Path:
-    """A fresh folder per run, so files from earlier runs are never mistaken for current results."""
-    stamp = started.strftime("%Y%m%dT%H%M%SZ")
-    return base / safe_site_name(site_url) / f"{args.start_date}_to_{args.end_date}" / f"{stamp}_{args.data_state}"
+def create_run_directory(base: Path, site_url: str, args: argparse.Namespace, started: datetime) -> Path:
+    """Create a fresh folder per run, so files from earlier runs are never mistaken for current results."""
+    parent = base / safe_site_name(site_url) / f"{args.start_date}_to_{args.end_date}"
+    parent.mkdir(parents=True, exist_ok=True)
+    name = f"{started.strftime('%Y%m%dT%H%M%SZ')}_{args.data_state}"
+    for attempt in range(1, 1000):
+        output = parent / (name if attempt == 1 else f"{name}_{attempt}")
+        try:
+            output.mkdir()  # Atomic: concurrent runs cannot claim the same folder.
+            return output
+        except FileExistsError:
+            continue
+    raise SystemExit(f"Could not create a unique run folder under {parent}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -420,8 +448,7 @@ def main(argv: list[str] | None = None) -> int:
 
     site_url = choose_site(properties, args.site)
     started = datetime.now(timezone.utc)
-    output = run_directory(args.output, site_url, args, started)
-    output.mkdir(parents=True, exist_ok=False)
+    output = create_run_directory(args.output, site_url, args, started)
     write_json(output / "properties.json", properties_response)
 
     sitemaps, errors = list_sitemaps(service, site_url)
