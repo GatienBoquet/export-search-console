@@ -11,7 +11,7 @@ from unittest import mock
 from googleapiclient.errors import HttpError
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skill" / "export-search-console" / "scripts" / "search_console_export.py"
+SCRIPT = ROOT / "skills" / "export-search-console" / "scripts" / "search_console_export.py"
 spec = importlib.util.spec_from_file_location("search_console_export", SCRIPT)
 exporter = importlib.util.module_from_spec(spec)
 sys.modules["search_console_export"] = exporter
