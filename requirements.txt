@@ -1,1 +1,1 @@
--r skill/export-search-console/scripts/requirements.txt
+-r skills/export-search-console/scripts/requirements.txt

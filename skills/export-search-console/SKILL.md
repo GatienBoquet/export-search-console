@@ -1,6 +1,7 @@
 ---
 name: export-search-console
 description: Export and analyze Google Search Console data with the bundled read-only Python client. Use when an agent needs to list Search Console properties, retrieve sitemap status (including sitemap-index children), export search performance metrics by date/hour/query/page/country/device/search appearance with optional filters, inspect the indexed status of supplied URLs, or turn Search Console API exports into concrete SEO findings.
+license: MIT
 ---
 
 # Export Search Console

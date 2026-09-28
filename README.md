@@ -1,5 +1,7 @@
 # Google Search Console exporter (Python)
 
+[![skills.sh](https://skills.sh/b/GatienBoquet/export-search-console)](https://skills.sh/GatienBoquet/export-search-console)
+
 This small program exports the information available through the official Search Console API:
 
 - accessible properties and permission levels (`properties.json`);
@@ -8,11 +10,12 @@ This small program exports the information available through the official Search
 - optional Google index inspections for a list of URLs (`url_inspections.json`);
 - a run summary with row counts, data-freshness metadata, warnings, and errors (`run_metadata.json`).
 
-The exporter lives in `skill/export-search-console/scripts/`; the root `search_console_export.py` simply runs it.
+The exporter lives in `skills/export-search-console/scripts/`; the root `search_console_export.py` simply runs it.
 
-The repository also contains an agent-ready Codex skill under
-`skill/export-search-console`. Invoke it as `$export-search-console` after
-copying that folder into your Codex skills directory.
+The repository also contains an agent skill under
+`skills/export-search-console` that works with Claude Code, Codex, Cursor, and
+other agents supporting the [Agent Skills](https://agentskills.io) format. See
+[Install the agent skill](#install-the-agent-skill).
 
 ## 1. Configure Google Cloud
 
@@ -105,23 +108,33 @@ python -m unittest discover -s tests
 
 The tests use a fake API service and need no credentials.
 
-## Install the Codex skill
+## Install the agent skill
+
+Install it with the [`skills`](https://skills.sh) CLI (Node.js required):
+
+```
+npx skills add GatienBoquet/export-search-console
+```
+
+Add `-g` to install it for all projects, or `-a claude-code` / `-a codex` to pick an agent.
+
+To install it manually for Codex instead, copy the folder into your Codex skills directory.
 
 On Windows PowerShell:
 
 ```powershell
 Copy-Item -Recurse `
-  .\skill\export-search-console `
+  .\skills\export-search-console `
   "$HOME\.codex\skills\export-search-console"
 ```
 
 On macOS / Linux:
 
 ```bash
-cp -R skill/export-search-console ~/.codex/skills/export-search-console
+cp -R skills/export-search-console ~/.codex/skills/export-search-console
 ```
 
-Then start a new Codex session and use a prompt such as:
+Then start a new agent session and use a prompt such as the following (in Claude Code, write `/export-search-console` instead of `$export-search-console`):
 
 ```text
 Use $export-search-console to export and analyze the last 90 days of Search Console data for sc-domain:example.com.
